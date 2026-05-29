@@ -1,0 +1,8 @@
+streamlit
+pymupdf
+pikepdf
+pypdf
+pdfplumber
+pandas
+plotly
+numpy
