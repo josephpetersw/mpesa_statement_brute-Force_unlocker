@@ -15,11 +15,13 @@ from analyzer import analyze_statement
 # ─────────────────────────────────────────────────────────────────────────────
 # Bootstrap CDN helper — injected once
 # ─────────────────────────────────────────────────────────────────────────────
+# BOOTSTRAP_CDN: Includes Bootstrap 5 stylesheet and Font Awesome icons for modern, emoji-free visuals
 BOOTSTRAP_CDN = """
 <link rel="stylesheet"
   href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
   integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
   crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 """
 
 
@@ -115,9 +117,9 @@ def _worker_cards_html(batch_progress: dict, num_workers: int, overall_speed: fl
     candidates tested / total, % complete, and last-tried password.
     """
     status_colors = {
-        "Running":   ("#1b5e20", "#43a047", "▶"),
-        "Done":      ("#0d47a1", "#1e88e5", "✔"),
-        "Pending":   ("#37474f", "#607d8b", "…"),
+        "Running":   ("#1b5e20", "#43a047", '<i class="fas fa-play" style="font-size:0.7rem; margin-right:4px;"></i>'),
+        "Done":      ("#0d47a1", "#1e88e5", '<i class="fas fa-check" style="font-size:0.7rem; margin-right:4px;"></i>'),
+        "Pending":   ("#37474f", "#607d8b", '<i class="fas fa-ellipsis-h" style="font-size:0.7rem; margin-right:4px;"></i>'),
     }
 
     cards = ""
@@ -168,7 +170,7 @@ def _worker_cards_html(batch_progress: dict, num_workers: int, overall_speed: fl
                 font-size:0.68rem;color:#78909c;
                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
                 margin-top:3px;" title="{last_pwd}">
-                🔑 {last_pwd}
+                <i class="fas fa-key" style="margin-right:4px;"></i> {last_pwd}
             </div>
         </div>"""
 
@@ -186,29 +188,30 @@ def _worker_cards_html(batch_progress: dict, num_workers: int, overall_speed: fl
 def run_progress_ui_loop(pdf_bytes):
     state = st.session_state.brute_force_state
 
-    st.markdown(f"### 🛠️ Running **{state['strategy_name']}** Brute-Force  ·  {state['max_workers']} concurrent workers")
+    # Dashboard sub-title during decryption using Font Awesome icon instead of emoji
+    st.markdown(f"### <i class='fas fa-cogs'></i> Running **{state['strategy_name']}** Brute-Force  ·  {state['max_workers']} concurrent workers", unsafe_allow_html=True)
 
     col_stop, col_pause = st.columns(2)
     with col_stop:
-        if st.button("🛑 Stop", key="stop_btn", type="primary"):
+        if st.button("Stop", key="stop_btn", type="primary"):
             state["stop_event"].set()
             state["finished"] = True
             state["active"] = False
             st.rerun()
     with col_pause:
         paused = state["paused"]
-        lbl = "▶️ Resume" if paused else "⏸️ Pause"
+        lbl = "Resume" if paused else "Pause"
         if st.button(lbl, key="pause_btn"):
             state["paused"] = not paused
             if not paused:
                 state["pause_event"].clear()
                 state["pause_start"] = time.time()
-                state["logs_list"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏸ PAUSED")
+                state["logs_list"].append(f"[{datetime.now().strftime('%H:%M:%S')}] PAUSED")
             else:
                 state["pause_event"].set()
                 if state["pause_start"] > 0:
                     state["elapsed_paused"] += time.time() - state["pause_start"]
-                state["logs_list"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ▶ RESUMED")
+                state["logs_list"].append(f"[{datetime.now().strftime('%H:%M:%S')}] RESUMED")
             st.rerun()
 
     # ── Overall progress bar + status ────────────────────────────────────────
@@ -219,7 +222,7 @@ def run_progress_ui_loop(pdf_bytes):
     num_workers = state["max_workers"]
     st.markdown(
         f"<div style='font-size:0.8rem;color:#78909c;margin:8px 0 4px;letter-spacing:.6px;font-weight:700;'>"
-        f"🔀 SPAWNED WORKERS ({num_workers})</div>",
+        f"<i class='fas fa-network-wired'></i> SPAWNED WORKERS ({num_workers})</div>",
         unsafe_allow_html=True,
     )
     worker_grid = st.empty()
@@ -227,7 +230,7 @@ def run_progress_ui_loop(pdf_bytes):
     # ── Live console header + placeholder ────────────────────────────────────
     st.markdown(
         "<div style='font-size:0.8rem;color:#78909c;margin:10px 0 4px;letter-spacing:.6px;font-weight:700;'>"
-        "💬 LIVE CONSOLE</div>",
+        "<i class='fas fa-terminal'></i> LIVE CONSOLE</div>",
         unsafe_allow_html=True,
     )
     log_area = st.empty()
@@ -266,13 +269,13 @@ def run_progress_ui_loop(pdf_bytes):
 
         if state["paused"]:
             status_text.markdown(
-                f"⏸️ **PAUSED** — `{overall_tested:,}` / `{total_candidates:,}` "
+                f"**PAUSED** — `{overall_tested:,}` / `{total_candidates:,}` "
                 f"tested **({pct*100:.2f}%)**"
             )
         else:
             status_text.markdown(
-                f"⚡ `{overall_tested:,}` / `{total_candidates:,}` tested "
-                f"**({pct*100:.2f}%)** · ⏱ ETA **{eta_str}** · 🚀 {speed_str}"
+                f"`{overall_tested:,}` / `{total_candidates:,}` tested "
+                f"**({pct*100:.2f}%)** · ETA **{eta_str}** · Speed: {speed_str}"
             )
 
         # ── Render worker grid ────────────────────────────────────────────────
@@ -296,15 +299,15 @@ def run_progress_ui_loop(pdf_bytes):
         st.session_state.cracked_by_worker = state.get("found_worker")
 
         worker_lbl = f" (Found by Worker {st.session_state.cracked_by_worker + 1})" if st.session_state.cracked_by_worker is not None else ""
-        st.success(f"🎉 **Password cracked successfully!**{worker_lbl}")
+        st.success(f"Password cracked successfully!{worker_lbl}")
         bt(f"""
         <div style="background:#1b5e20;border-radius:10px;padding:16px 24px;margin:12px 0;display:inline-block;">
-            <span style="color:#a5d6a7;font-size:0.85rem;letter-spacing:1px;">DOCUMENT PASSWORD</span><br>
+            <span style="color:#a5d6a7;font-size:0.85rem;letter-spacing:1px;"><i class="fas fa-unlock-alt"></i> DOCUMENT PASSWORD</span><br>
             <span style="color:#ffffff;font-size:2rem;font-weight:900;letter-spacing:3px;font-family:monospace;">{found_pwd}</span>
         </div>
         """)
         st.download_button(
-            label="💾 Download Unlocked PDF",
+            label="Download Unlocked PDF",
             data=unlocked,
             file_name="unlocked_statement.pdf",
             mime="application/pdf",
@@ -315,9 +318,9 @@ def run_progress_ui_loop(pdf_bytes):
         st.rerun()
     else:
         if state.get("stop_event") and state["stop_event"].is_set():
-            st.warning("⚠️ Brute-force stopped by user.")
+            st.warning("Brute-force stopped by user.")
         else:
-            st.error("❌ Password not found in the specified range / wordlist.")
+            st.error("Password not found in the specified range / wordlist.")
         if "brute_force_state" in st.session_state:
             del st.session_state.brute_force_state
 
@@ -327,18 +330,23 @@ def run_progress_ui_loop(pdf_bytes):
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="M-PESA Statement Analyzer",
-    page_icon="💸",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Global CSS — dark-mode friendly + Bootstrap tables
+# Global CSS — dark-mode friendly + Bootstrap tables + Nunito Font integration
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown(BOOTSTRAP_CDN, unsafe_allow_html=True)
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800;900&display=swap');
+
+html, body, [class*="css"], .stApp, .kpi-card, .table, button, select, input, p, div, span, h1, h2, h3, h4, h5, h6 {
+    font-family: 'Nunito', sans-serif !important;
+}
+
 /* ── KPI cards ─────────────────────────────────────── */
 .kpi-card {
     background: linear-gradient(135deg, #1e2a1e 0%, #243024 100%);
@@ -423,7 +431,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💸 M-PESA Statement Analyzer")
+st.markdown("<h1><i class='fas fa-credit-card'></i> M-PESA Statement Analyzer</h1>", unsafe_allow_html=True)
 st.caption("Securely analyze, decrypt, and visualize your M-PESA statements — all locally.")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -434,10 +442,12 @@ for key, default in [("unlocked_pdf_bytes", None), ("pdf_name", None), ("passwor
         st.session_state[key] = default
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sidebar — upload
+# Sidebar — logo & upload
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("📥 Upload Statement")
+    st.image("images/M-PESA_LOGO-01.svg.png", use_container_width=True)
+    st.markdown("---")
+    st.markdown("<h3><i class='fas fa-file-upload'></i> Upload Statement</h3>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload M-PESA PDF Statement", type=["pdf"])
     if uploaded_file:
         if st.session_state.pdf_name != uploaded_file.name:
@@ -450,11 +460,11 @@ with st.sidebar:
     if st.session_state.password:
         st.markdown("---")
         worker_lbl = f" (Worker {st.session_state.cracked_by_worker + 1})" if st.session_state.get("cracked_by_worker") is not None else ""
-        st.markdown(f"🔓 **Document Password**{worker_lbl}")
+        st.markdown(f"**Document Password**{worker_lbl}")
         st.code(st.session_state.password, language=None)
         if st.session_state.unlocked_pdf_bytes:
             st.download_button(
-                "💾 Save Unlocked PDF",
+                "Save Unlocked PDF",
                 data=st.session_state.unlocked_pdf_bytes,
                 file_name="unlocked_statement.pdf",
                 mime="application/pdf",
@@ -481,14 +491,14 @@ if is_encrypted:
     badge_color = "#c62828" if "256" in bits else "#e65100" if "128" in bits else "#6a1b9a"
     perm_html = ""
     if perms:
-        perm_parts = [f"{'✅' if v else '🚫'} {k.capitalize()}" for k, v in perms.items()]
+        perm_parts = [f"{'Yes' if v else 'No'} {k.capitalize()}" for k, v in perms.items()]
         perm_html = f"<div style='font-size:0.78rem;color:#90a4ae;margin-top:6px;'>Permissions: {' &nbsp;|&nbsp; '.join(perm_parts)}</div>"
 
     bt(f"""
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
         <div style="background:{badge_color};color:#fff;border-radius:8px;padding:7px 18px;
                     font-weight:800;font-size:1rem;letter-spacing:1px;">
-            🔐 {label}
+            <i class="fas fa-lock"></i> {label}
         </div>
         <span style="color:#cfd8dc;font-size:0.95rem;">
             <strong>{label}</strong> encryption detected — unlock required to proceed.<br>
@@ -498,22 +508,22 @@ if is_encrypted:
     {perm_html}
     """)
 
-    st.warning(f"🔒 This PDF is encrypted with **{label}** ({algo}, {bits} key). Enter the password or use the brute-forcer below.")
+    st.warning(f"This PDF is encrypted with {label} ({algo}, {bits} key). Enter the password or use the brute-forcer below.")
 
-    tab_manual, tab_brute = st.tabs(["🔑 Manual Password", "🛠️ Brute-Force Cracker"])
+    tab_manual, tab_brute = st.tabs(["Manual Password", "Brute-Force Cracker"])
 
     with tab_manual:
         with st.form("manual_password_form"):
             pwd_input = st.text_input("Enter Statement Password", type="password")
-            submit_pwd = st.form_submit_button("🔓 Unlock PDF")
+            submit_pwd = st.form_submit_button("Unlock PDF")
             if submit_pwd:
                 if validate_password(pdf_bytes, pwd_input, enc_info=enc_info):
                     st.session_state.unlocked_pdf_bytes = generate_unlocked_pdf(pdf_bytes, pwd_input)
                     st.session_state.password = pwd_input
-                    st.success("✅ PDF unlocked successfully!")
+                    st.success("PDF unlocked successfully!")
                     st.rerun()
                 else:
-                    st.error("❌ Wrong password. Please try again.")
+                    st.error("Wrong password. Please try again.")
 
     with tab_brute:
         if "brute_force_state" in st.session_state and st.session_state.brute_force_state.get("active"):
@@ -524,10 +534,10 @@ if is_encrypted:
             sys_cores = os.cpu_count() or 4
             default_workers = min(50, sys_cores * 2)
 
-            st.markdown(f"**⚙️ CPU Hardware Acceleration**")
+            st.markdown(f"**<i class='fas fa-microchip'></i> CPU Hardware Acceleration**", unsafe_allow_html=True)
             st.info(
-                f"💻 **{sys_cores} Logical CPU Cores Detected.** \n\n"
-                f"**Note on GPUs**: PDF decryption (AES/RC4) relies heavily on standard CPU hashing. "
+                f"Logical CPU Cores Detected: {sys_cores}. \n\n"
+                f"Note on GPUs: PDF decryption (AES/RC4) relies heavily on standard CPU hashing. "
                 f"GPU acceleration is not supported by PDF parsing libraries (like PyMuPDF/pikepdf) without custom CUDA wrappers. "
                 f"However, we fully bypass the Python GIL to utilize all your CPU cores simultaneously."
             )
@@ -536,7 +546,7 @@ if is_encrypted:
                 min_value=1, max_value=min(200, sys_cores * 10), value=default_workers, step=1,
                 help=f"We auto-detected {sys_cores} cores. Setting this higher than your core count will oversubscribe the CPU (often beneficial for I/O bounds, but usually 2x to 4x cores is optimal for decryption)."
             )
-            st.caption(f"🔀 Candidates will be split into **{max_workers} parallel batches** running simultaneously.")
+            st.caption(f"Candidates will be split into {max_workers} parallel batches running simultaneously.")
 
             if brute_mode == "ID Number Range":
                 col1, col2 = st.columns(2)
@@ -545,8 +555,8 @@ if is_encrypted:
                 with col2:
                     end_id = st.number_input("End ID", min_value=1, max_value=999999999, value=999999)
                 total_comb = int(end_id) - int(start_id) + 1
-                st.caption(f"Will attempt **{total_comb:,}** combinations across {max_workers} workers (~{total_comb//max_workers:,} each).")
-                if st.button("🚀 Start Brute-Force (ID Range)", type="primary"):
+                st.caption(f"Will attempt {total_comb:,} combinations across {max_workers} workers (~{total_comb//max_workers:,} each).")
+                if st.button("Start Brute-Force (ID Range)", type="primary"):
                     candidates = list(brute_force_generator("", "", int(start_id), int(end_id)))
                     start_brute_force_session(pdf_bytes, candidates, "ID Range", enc_info, max_workers)
 
@@ -556,7 +566,7 @@ if is_encrypted:
                     start_yr = st.number_input("Start Year", min_value=1950, max_value=2026, value=1980)
                 with col2:
                     end_yr = st.number_input("End Year", min_value=1950, max_value=2026, value=2010)
-                if st.button("🚀 Start Brute-Force (Birth Years)", type="primary"):
+                if st.button("Start Brute-Force (Birth Years)", type="primary"):
                     candidates = [str(yr) for yr in range(int(start_yr), int(end_yr) + 1)]
                     start_brute_force_session(pdf_bytes, candidates, "Birth Years", enc_info, max_workers)
 
@@ -564,8 +574,8 @@ if is_encrypted:
                 wordlist_file = st.file_uploader("Upload wordlist (.txt, one password per line)")
                 if wordlist_file:
                     words = [w.decode("utf-8", errors="ignore").strip() for w in wordlist_file.readlines() if w.strip()]
-                    st.caption(f"Loaded **{len(words):,}** candidates from wordlist.")
-                    if st.button("🚀 Start Wordlist Attack", type="primary"):
+                    st.caption(f"Loaded {len(words):,} candidates from wordlist.")
+                    if st.button("Start Wordlist Attack", type="primary"):
                         start_brute_force_session(pdf_bytes, words, "Wordlist", enc_info, max_workers)
 
     if st.session_state.unlocked_pdf_bytes is not None:
@@ -575,7 +585,7 @@ if is_encrypted:
         st.stop()
 else:
     working_bytes = pdf_bytes
-    st.success("🔓 PDF is unencrypted — opening immediately.")
+    st.success("PDF is unencrypted — opening immediately.")
 
 # ── Show password banner if session has a cracked password ──────────────────
 if st.session_state.password:
@@ -584,7 +594,7 @@ if st.session_state.password:
         worker_lbl = f" (found by Worker {st.session_state.cracked_by_worker + 1})"
     bt(f"""
     <div class="pwd-box">
-        <div class="lbl">Document Password (cracked){worker_lbl}</div>
+        <div class="lbl"><i class="fas fa-key"></i> Document Password (cracked){worker_lbl}</div>
         <div class="val">{st.session_state.password}</div>
     </div>
     """)
@@ -593,19 +603,19 @@ if st.session_state.password:
 # Extract data
 # ─────────────────────────────────────────────────────────────────────────────
 parse_start_time = time.time()
-with st.spinner("Extracting text and transactions…"):
+with st.spinner("Extracting text and transactions..."):
     raw_text = extract_text_from_pdf(working_bytes)
     is_scanned = len(raw_text.strip()) < 100
 
     if is_scanned:
-        st.warning("⚠️ Appears to be a scanned document. OCR required.")
+        st.warning("Appears to be a scanned document. OCR required.")
         selected_engine = st.selectbox("OCR Engine", ["auto", "easyocr", "tesseract"])
         if st.button("Run OCR"):
-            with st.spinner("Running OCR…"):
+            with st.spinner("Running OCR..."):
                 raw_text = ocr_fallback_extract(working_bytes, engine=selected_engine)
                 is_scanned = False
         else:
-            st.info("Click **Run OCR** to extract text.")
+            st.info("Click Run OCR to extract text.")
             st.stop()
 
     metadata = extract_metadata(raw_text)
@@ -616,7 +626,7 @@ with st.spinner("Extracting text and transactions…"):
     
     # Fallback: Run slow pdfplumber table extraction only if text-based parsing returned 0 transactions
     if not transactions:
-        with st.spinner("Fast-path text parser returned 0 results. Running table extraction fallback (this may take a few minutes)..."):
+        with st.spinner("Fast-path text parser returned 0 results. Running table extraction fallback..."):
             tables = extract_tables_from_pdf(working_bytes)
             transactions = parse_transactions(tables, raw_text)
 
@@ -629,12 +639,12 @@ if not transactions:
 analysis = analyze_statement(transactions)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Dashboard header
+# Dashboard header using Nunito & Font Awesome
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown("## 📊 Statement Analysis Dashboard")
+st.markdown("<h2><i class='fas fa-chart-line'></i> Statement Analysis Dashboard</h2>", unsafe_allow_html=True)
 st.caption(f"Processed **{len(transactions):,}** transactions in **{parse_duration:.3f}** seconds.")
 
-# Customer meta row
+# Customer metadata row
 c1, c2, c3, c4 = st.columns(4)
 for col, lbl, val in [
     (c1, "Customer Name",    metadata["customer_name"]),
@@ -646,65 +656,65 @@ for col, lbl, val in [
         bt(f'<div class="meta-card"><div class="meta-label">{lbl}</div><div class="meta-value">{val}</div></div>')
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Financial KPI cards
+# Financial KPI cards with Font Awesome and defensive get() accessor
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown("### Financial Performance Indicators")
+st.markdown("<h3><i class='fas fa-wallet'></i> Financial Performance Indicators</h3>", unsafe_allow_html=True)
 
-# Proper monthly averages and metrics
-total_inflow   = analysis["total_inflow"]
-total_outflow  = analysis["total_outflow"]
-avg_in         = analysis["avg_monthly_inflow"]
-avg_out        = analysis["avg_monthly_outflow"]
-low_bal        = analysis["lowest_balance"]
-high_bal       = analysis["highest_balance"]
-avg_bal        = analysis["average_balance"]
+# Fetching values safely using .get() with fallback defaults
+total_inflow   = analysis.get("total_inflow", 0.0)
+total_outflow  = analysis.get("total_outflow", 0.0)
+avg_in         = analysis.get("avg_monthly_inflow", 0.0)
+avg_out        = analysis.get("avg_monthly_outflow", 0.0)
+low_bal        = analysis.get("lowest_balance", 0.0)
+high_bal       = analysis.get("highest_balance", 0.0)
+avg_bal        = analysis.get("average_balance", 0.0)
 
-total_fees     = analysis["total_fees"]
-net_savings    = analysis["net_savings"]
-savings_rate   = analysis["savings_rate"]
-total_txs      = analysis["total_txs"]
-inflow_count   = analysis["inflow_count"]
-outflow_count  = analysis["outflow_count"]
+total_fees     = analysis.get("total_fees", 0.0)
+net_savings    = analysis.get("net_savings", 0.0)
+savings_rate   = analysis.get("savings_rate", 0.0)
+total_txs      = analysis.get("total_txs", 0)
+inflow_count   = analysis.get("inflow_count", 0)
+outflow_count  = analysis.get("outflow_count", 0)
 
-# Row 1
+# Row 1: Key Financial Flow KPIs
 r1_c1, r1_c2, r1_c3 = st.columns(3)
 with r1_c1:
     bt(f"""<div class="kpi-card">
-        <div class="kpi-label">Total Inflow</div>
+        <div class="kpi-label"><i class="fas fa-arrow-down text-success" style="margin-right:6px;"></i> Total Inflow</div>
         <div class="kpi-value">KES {total_inflow:,.2f}</div>
         <div class="kpi-sub">Monthly Avg: KES {avg_in:,.2f}</div>
     </div>""")
 with r1_c2:
     bt(f"""<div class="kpi-card outflow">
-        <div class="kpi-label">Total Outflow</div>
+        <div class="kpi-label"><i class="fas fa-arrow-up text-danger" style="margin-right:6px;"></i> Total Outflow</div>
         <div class="kpi-value">KES {abs(total_outflow):,.2f}</div>
         <div class="kpi-sub">Monthly Avg: KES {abs(avg_out):,.2f}</div>
     </div>""")
 with r1_c3:
     savings_card_cls = "" if net_savings >= 0 else "outflow"
     bt(f"""<div class="kpi-card {savings_card_cls}">
-        <div class="kpi-label">Net Surplus (Savings)</div>
+        <div class="kpi-label"><i class="fas fa-piggy-bank text-info" style="margin-right:6px;"></i> Net Surplus (Savings)</div>
         <div class="kpi-value">KES {net_savings:,.2f}</div>
         <div class="kpi-sub">Savings Rate: {savings_rate:.1f}%</div>
     </div>""")
 
-# Row 2
+# Row 2: Secondary Performance KPIs
 r2_c1, r2_c2, r2_c3 = st.columns(3)
 with r2_c1:
     bt(f"""<div class="kpi-card neutral">
-        <div class="kpi-label">Average Balance</div>
+        <div class="kpi-label"><i class="fas fa-balance-scale text-primary" style="margin-right:6px;"></i> Average Balance</div>
         <div class="kpi-value">KES {avg_bal:,.2f}</div>
         <div class="kpi-sub">Total Txns: {total_txs:,} ({inflow_count} in / {outflow_count} out)</div>
     </div>""")
 with r2_c2:
     bt(f"""<div class="kpi-card outflow">
-        <div class="kpi-label">M-PESA Transaction Fees</div>
+        <div class="kpi-label"><i class="fas fa-percent text-warning" style="margin-right:6px;"></i> M-PESA Transaction Fees</div>
         <div class="kpi-value">KES {total_fees:,.2f}</div>
         <div class="kpi-sub">Cost of Service & Levies</div>
     </div>""")
 with r2_c3:
     bt(f"""<div class="kpi-card neutral">
-        <div class="kpi-label">Balance Range</div>
+        <div class="kpi-label"><i class="fas fa-arrows-alt-v" style="margin-right:6px;"></i> Balance Range</div>
         <div class="kpi-value" style="font-size:1.15rem; line-height: 1.5; font-weight:700;">
             Min: KES {low_bal:,.2f}<br>Max: KES {high_bal:,.2f}
         </div>
@@ -712,13 +722,13 @@ with r2_c3:
     </div>""")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tabs
+# Tabs (Clean text labels only)
 # ─────────────────────────────────────────────────────────────────────────────
 tab_viz, tab_partners, tab_raw, tab_neg = st.tabs([
-    "📈 Visualizations", 
-    "🤝 Top Partners & Merchants", 
-    "📋 Transaction Log",
-    "⚠️ Risk & Negative Indicators"
+    "Visualizations", 
+    "Top Partners & Merchants", 
+    "Transaction Log",
+    "Risk & Negative Indicators"
 ])
 
 # ── Visualizations ──────────────────────────────────────────────────────────
@@ -799,21 +809,21 @@ with tab_partners:
         return html
 
     with p1:
-        st.markdown("##### 🏢 Buy Goods Merchants")
-        bt(partner_table(analysis["top_merchants"],  "Merchant",  "Spent"))
+        st.markdown("##### <i class='fas fa-store'></i> Buy Goods Merchants", unsafe_allow_html=True)
+        bt(partner_table(analysis.get("top_merchants", []),  "Merchant",  "Spent"))
     with p2:
-        st.markdown("##### 🧾 Paybill Accounts")
-        bt(partner_table(analysis["top_paybills"],   "Paybill",   "Paid"))
+        st.markdown("##### <i class='fas fa-file-invoice-dollar'></i> Paybill Accounts", unsafe_allow_html=True)
+        bt(partner_table(analysis.get("top_paybills", []),   "Paybill",   "Paid"))
     with p3:
-        st.markdown("##### 🧑 Send Money Recipients")
-        bt(partner_table(analysis["top_recipients"], "Recipient", "Sent"))
+        st.markdown("##### <i class='fas fa-user-friends'></i> Send Money Recipients", unsafe_allow_html=True)
+        bt(partner_table(analysis.get("top_recipients", []), "Recipient", "Sent"))
 
     st.markdown("---")
     e1, e2 = st.columns(2)
-    le = analysis["largest_incoming"]
-    lo = analysis["largest_outgoing"]
+    le = analysis.get("largest_incoming", {"receipt_no": "N/A", "date": "N/A", "amount": 0.0, "details": "N/A"})
+    lo = analysis.get("largest_outgoing", {"receipt_no": "N/A", "date": "N/A", "amount": 0.0, "details": "N/A"})
     with e1:
-        st.markdown("##### 🟩 Largest Incoming")
+        st.markdown("##### <i class='fas fa-arrow-alt-circle-down text-success'></i> Largest Incoming", unsafe_allow_html=True)
         bt(f"""<table class="table table-sm table-borderless">
             <tbody>
                 <tr><th class="text-muted small">Receipt</th><td><code>{le['receipt_no']}</code></td></tr>
@@ -822,7 +832,7 @@ with tab_partners:
                 <tr><th class="text-muted small">Details</th><td>{le['details']}</td></tr>
             </tbody></table>""")
     with e2:
-        st.markdown("##### 🟥 Largest Outgoing")
+        st.markdown("##### <i class='fas fa-arrow-alt-circle-up text-danger'></i> Largest Outgoing", unsafe_allow_html=True)
         bt(f"""<table class="table table-sm table-borderless">
             <tbody>
                 <tr><th class="text-muted small">Receipt</th><td><code>{lo['receipt_no']}</code></td></tr>
@@ -836,7 +846,7 @@ with tab_raw:
     st.markdown("##### Transaction Log")
     r1, r2 = st.columns([3, 1])
     with r1:
-        search_query = st.text_input("🔍 Search receipt no. or details", "").strip().lower()
+        search_query = st.text_input("Search receipt no. or details", "").strip().lower()
     with r2:
         categories = ["All"] + sorted(set(t["type"] for t in transactions))
         selected_cat = st.selectbox("Category", categories)
@@ -878,7 +888,7 @@ with tab_raw:
         # Top pagination controls
         col_prev, col_page, col_next = st.columns([1, 2, 1])
         with col_prev:
-            if st.button("⬅️ Previous", key="prev_page_btn", disabled=(current_page == 1)):
+            if st.button("Previous", key="prev_page_btn", disabled=(current_page == 1)):
                 st.session_state.txn_log_page -= 1
                 st.rerun()
         with col_page:
@@ -889,7 +899,7 @@ with tab_raw:
                 unsafe_allow_html=True
             )
         with col_next:
-            if st.button("Next ➡️", key="next_page_btn", disabled=(current_page == total_pages)):
+            if st.button("Next", key="next_page_btn", disabled=(current_page == total_pages)):
                 st.session_state.txn_log_page += 1
                 st.rerun()
 
@@ -943,7 +953,7 @@ with tab_raw:
         for t in filtered:
             writer.writerow([t["receipt_no"], t["completion_time"], t["details"], t["amount"], t["balance"], t["type"]])
         st.download_button(
-            label="⬇️ Export All Filtered as CSV",
+            label="Export All Filtered as CSV",
             data=output.getvalue().encode("utf-8"),
             file_name="mpesa_transactions.csv",
             mime="text/csv",
@@ -954,35 +964,35 @@ with tab_raw:
 
 # ── Risk & Negative Indicators ────────────────────────────────────────────────
 with tab_neg:
-    st.markdown("##### ⚠️ Financial Risk & Negative Indicators")
+    st.markdown("##### <i class='fas fa-exclamation-triangle text-warning'></i> Financial Risk & Negative Indicators", unsafe_allow_html=True)
     st.caption("Key vulnerability indicators, including account inactivity, high spending days, deficit periods, and overdraft dependencies.")
     
     # Row of KPI Cards
     n1, n2, n3 = st.columns(3)
     with n1:
         # Longest Dormant Period
-        gap_days = analysis["longest_gap_days"]
+        gap_days = analysis.get("longest_gap_days", 0.0)
         gap_str = f"{gap_days:.1f} Days" if gap_days > 0 else "0 Days"
         bt(f"""<div class="kpi-card warning">
-            <div class="kpi-label">Longest Dormant Period</div>
+            <div class="kpi-label"><i class="fas fa-hourglass-half"></i> Longest Dormant Period</div>
             <div class="kpi-value">{gap_str}</div>
-            <div class="kpi-sub">Span: {analysis['longest_gap_start']} to {analysis['longest_gap_end']}</div>
+            <div class="kpi-sub">Span: {analysis.get('longest_gap_start', 'N/A')} to {analysis.get('longest_gap_end', 'N/A')}</div>
         </div>""")
         
     with n2:
         # Peak Outflow Day
         bt(f"""<div class="kpi-card outflow">
-            <div class="kpi-label">Peak Outflow Day</div>
-            <div class="kpi-value">KES {analysis['peak_outflow_amount']:,.2f}</div>
-            <div class="kpi-sub">Date: {analysis['peak_outflow_day']}</div>
+            <div class="kpi-label"><i class="fas fa-fire"></i> Peak Outflow Day</div>
+            <div class="kpi-value">KES {analysis.get('peak_outflow_amount', 0.0):,.2f}</div>
+            <div class="kpi-sub">Date: {analysis.get('peak_outflow_day', 'N/A')}</div>
         </div>""")
         
     with n3:
         # Overdraft Reliance
-        ov_vol = analysis["overdraft_total_volume"]
+        ov_vol = analysis.get("overdraft_total_volume", 0.0)
         bt(f"""<div class="kpi-card risk">
-            <div class="kpi-label">Overdraft (Fuliza) Triggers</div>
-            <div class="kpi-value">{analysis['overdraft_events']} Times</div>
+            <div class="kpi-label"><i class="fas fa-chart-line"></i> Overdraft (Fuliza) Triggers</div>
+            <div class="kpi-value">{analysis.get('overdraft_events', 0)} Times</div>
             <div class="kpi-sub">Total Borrowed: KES {ov_vol:,.2f}</div>
         </div>""")
 
@@ -990,9 +1000,9 @@ with tab_neg:
     col_def, col_debt = st.columns(2)
     
     with col_def:
-        st.markdown("##### 📉 Monthly Deficit Analysis")
+        st.markdown("##### <i class='fas fa-chart-area'></i> Monthly Deficit Analysis", unsafe_allow_html=True)
         st.caption("Months where total cash outflow exceeded total cash inflow.")
-        neg_months = analysis["negative_months"]
+        neg_months = analysis.get("negative_months", [])
         if neg_months:
             rows_html = ""
             for m in neg_months:
@@ -1016,17 +1026,17 @@ with tab_neg:
             </table>
             """)
         else:
-            st.success("✅ No net deficit months detected. Inflow exceeded outflow in all active months!")
+            st.success("No net deficit months detected. Inflow exceeded outflow in all active months!")
 
     with col_debt:
-        st.markdown("##### 💳 Overdraft & Debt Repayment Ratio")
+        st.markdown("##### <i class='fas fa-credit-card'></i> Overdraft & Debt Repayment Ratio", unsafe_allow_html=True)
         st.caption("Comparison of total amount borrowed via Fuliza vs total amount repaid.")
         
         # Details comparison
-        borrowed = analysis["overdraft_total_volume"]
-        repaid = analysis["repayments_total_volume"]
-        b_count = analysis["overdraft_events"]
-        r_count = analysis["repayments_count"]
+        borrowed = analysis.get("overdraft_total_volume", 0.0)
+        repaid = analysis.get("repayments_total_volume", 0.0)
+        b_count = analysis.get("overdraft_events", 0)
+        r_count = analysis.get("repayments_count", 0)
         
         repay_ratio = (repaid / borrowed * 100) if borrowed > 0 else 0.0
         ratio_color = "#69f0ae" if repay_ratio >= 100 else "#ffb300" if repay_ratio > 80 else "#ff5252"
