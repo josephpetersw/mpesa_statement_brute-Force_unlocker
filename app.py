@@ -350,6 +350,8 @@ st.markdown("""
 }
 .kpi-card.outflow  { border-left-color: #e53935; background: linear-gradient(135deg,#2a1e1e,#301e1e); }
 .kpi-card.neutral  { border-left-color: #1e88e5; background: linear-gradient(135deg,#1a2035,#1e2540); }
+.kpi-card.warning  { border-left-color: #ffb300; background: linear-gradient(135deg,#2e251a,#362b1e); }
+.kpi-card.risk     { border-left-color: #d81b60; background: linear-gradient(135deg,#2c1a24,#331d2a); }
 .kpi-label {
     font-size: 0.68rem;
     font-weight: 700;
@@ -647,9 +649,8 @@ for col, lbl, val in [
 # Financial KPI cards
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("### Financial Performance Indicators")
-k1, k2, k3, k4, k5 = st.columns(5)
 
-# Proper monthly averages
+# Proper monthly averages and metrics
 total_inflow   = analysis["total_inflow"]
 total_outflow  = analysis["total_outflow"]
 avg_in         = analysis["avg_monthly_inflow"]
@@ -658,38 +659,67 @@ low_bal        = analysis["lowest_balance"]
 high_bal       = analysis["highest_balance"]
 avg_bal        = analysis["average_balance"]
 
-with k1:
+total_fees     = analysis["total_fees"]
+net_savings    = analysis["net_savings"]
+savings_rate   = analysis["savings_rate"]
+total_txs      = analysis["total_txs"]
+inflow_count   = analysis["inflow_count"]
+outflow_count  = analysis["outflow_count"]
+
+# Row 1
+r1_c1, r1_c2, r1_c3 = st.columns(3)
+with r1_c1:
     bt(f"""<div class="kpi-card">
         <div class="kpi-label">Total Inflow</div>
         <div class="kpi-value">KES {total_inflow:,.2f}</div>
         <div class="kpi-sub">Monthly Avg: KES {avg_in:,.2f}</div>
     </div>""")
-with k2:
+with r1_c2:
     bt(f"""<div class="kpi-card outflow">
         <div class="kpi-label">Total Outflow</div>
         <div class="kpi-value">KES {abs(total_outflow):,.2f}</div>
         <div class="kpi-sub">Monthly Avg: KES {abs(avg_out):,.2f}</div>
     </div>""")
-with k3:
-    bt(f"""<div class="kpi-card outflow">
-        <div class="kpi-label">Lowest Balance</div>
-        <div class="kpi-value">KES {low_bal:,.2f}</div>
+with r1_c3:
+    savings_card_cls = "" if net_savings >= 0 else "outflow"
+    bt(f"""<div class="kpi-card {savings_card_cls}">
+        <div class="kpi-label">Net Surplus (Savings)</div>
+        <div class="kpi-value">KES {net_savings:,.2f}</div>
+        <div class="kpi-sub">Savings Rate: {savings_rate:.1f}%</div>
     </div>""")
-with k4:
-    bt(f"""<div class="kpi-card">
-        <div class="kpi-label">Highest Balance</div>
-        <div class="kpi-value">KES {high_bal:,.2f}</div>
-    </div>""")
-with k5:
+
+# Row 2
+r2_c1, r2_c2, r2_c3 = st.columns(3)
+with r2_c1:
     bt(f"""<div class="kpi-card neutral">
         <div class="kpi-label">Average Balance</div>
         <div class="kpi-value">KES {avg_bal:,.2f}</div>
+        <div class="kpi-sub">Total Txns: {total_txs:,} ({inflow_count} in / {outflow_count} out)</div>
+    </div>""")
+with r2_c2:
+    bt(f"""<div class="kpi-card outflow">
+        <div class="kpi-label">M-PESA Transaction Fees</div>
+        <div class="kpi-value">KES {total_fees:,.2f}</div>
+        <div class="kpi-sub">Cost of Service & Levies</div>
+    </div>""")
+with r2_c3:
+    bt(f"""<div class="kpi-card neutral">
+        <div class="kpi-label">Balance Range</div>
+        <div class="kpi-value" style="font-size:1.15rem; line-height: 1.5; font-weight:700;">
+            Min: KES {low_bal:,.2f}<br>Max: KES {high_bal:,.2f}
+        </div>
+        <div class="kpi-sub">Lowest to Highest Balance Peak</div>
     </div>""")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
-tab_viz, tab_partners, tab_raw = st.tabs(["📈 Visualizations", "🤝 Top Partners & Merchants", "📋 Transaction Log"])
+tab_viz, tab_partners, tab_raw, tab_neg = st.tabs([
+    "📈 Visualizations", 
+    "🤝 Top Partners & Merchants", 
+    "📋 Transaction Log",
+    "⚠️ Risk & Negative Indicators"
+])
 
 # ── Visualizations ──────────────────────────────────────────────────────────
 with tab_viz:
@@ -811,6 +841,15 @@ with tab_raw:
         categories = ["All"] + sorted(set(t["type"] for t in transactions))
         selected_cat = st.selectbox("Category", categories)
 
+    # Reset page to 1 if search query or category selection changes
+    prev_search = st.session_state.get("txn_log_prev_search", "")
+    prev_cat = st.session_state.get("txn_log_prev_cat", "All")
+    if search_query != prev_search or selected_cat != prev_cat:
+        st.session_state.txn_log_page = 1
+        st.session_state.txn_log_prev_search = search_query
+        st.session_state.txn_log_prev_cat = selected_cat
+
+    # Highly optimized list comprehension for instant search
     filtered = [
         t for t in transactions
         if (not search_query or search_query in t["details"].lower() or search_query in t["receipt_no"].lower())
@@ -818,51 +857,208 @@ with tab_raw:
     ]
 
     if filtered:
+        # Pagination setup
+        page_size = 50
+        total_items = len(filtered)
+        total_pages = max(1, (total_items + page_size - 1) // page_size)
+        
+        # Initialize page state
+        if "txn_log_page" not in st.session_state:
+            st.session_state.txn_log_page = 1
+            
+        current_page = min(st.session_state.txn_log_page, total_pages)
+        st.session_state.txn_log_page = current_page
+        
+        start_idx = (current_page - 1) * page_size
+        end_idx = min(start_idx + page_size, total_items)
+        
+        # Paginate results
+        page_txs = filtered[start_idx:end_idx]
+
+        # Top pagination controls
+        col_prev, col_page, col_next = st.columns([1, 2, 1])
+        with col_prev:
+            if st.button("⬅️ Previous", key="prev_page_btn", disabled=(current_page == 1)):
+                st.session_state.txn_log_page -= 1
+                st.rerun()
+        with col_page:
+            st.markdown(
+                f"<div style='text-align:center;line-height:2.2rem;font-weight:600;color:#90a4ae;font-size:0.88rem;'>"
+                f"Page {current_page} of {total_pages} &nbsp;·&nbsp; showing {start_idx+1} to {end_idx} of {total_items:,} results"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+        with col_next:
+            if st.button("Next ➡️", key="next_page_btn", disabled=(current_page == total_pages)):
+                st.session_state.txn_log_page += 1
+                st.rerun()
+
+        # Render rows for current page only
         rows_html = ""
-        for t in filtered:
+        for t in page_txs:
             amt = t["amount"]
             cls  = "amount-in" if amt > 0 else "amount-out"
             sign = "+" if amt > 0 else ""
-            badge_cls = "badge-in" if amt > 0 else "badge-out"
+            
+            # Nice Bootstrap pill badge styling
+            if amt > 0:
+                badge_cls = "bg-success"
+            elif t["type"] in ("Paybill", "Buy Goods", "Send Money", "Agent Withdrawal", "Airtime Purchase"):
+                badge_cls = "bg-danger"
+            else:
+                badge_cls = "bg-secondary"
+
             rows_html += f"""<tr>
                 <td><code style="font-size:0.78rem;">{t['receipt_no']}</code></td>
                 <td style="white-space:nowrap;">{t['completion_time']}</td>
-                <td style="max-width:280px;">{t['details']}</td>
+                <td style="max-width:280px;word-wrap:break-word;">{t['details']}</td>
                 <td class="{cls}" style="text-align:right;white-space:nowrap;">{sign}KES {abs(amt):,.2f}</td>
                 <td style="text-align:right;white-space:nowrap;">KES {t['balance']:,.2f}</td>
-                <td><span class="badge {badge_cls}" style="font-size:0.72rem;">{t['type']}</span></td>
+                <td><span class="badge {badge_cls}" style="font-size:0.72rem;font-weight:600;">{t['type']}</span></td>
             </tr>"""
 
+        # Table rendering
         bt(f"""
-        <div style="overflow-x:auto;">
-        <table class="table table-sm table-striped table-hover align-middle" style="font-size:0.86rem;">
+        <div style="overflow-x:auto; margin: 12px 0 18px 0;">
+        <table class="table table-sm table-striped table-hover align-middle" style="font-size:0.86rem; border: 1px solid #263238;">
             <thead>
                 <tr>
-                    <th>Receipt No</th>
-                    <th>Time</th>
-                    <th>Details</th>
-                    <th class="text-end">Amount</th>
-                    <th class="text-end">Balance</th>
-                    <th>Category</th>
+                    <th style="padding: 10px 8px;">Receipt No</th>
+                    <th style="padding: 10px 8px;">Time</th>
+                    <th style="padding: 10px 8px;">Details</th>
+                    <th class="text-end" style="padding: 10px 8px;">Amount</th>
+                    <th class="text-end" style="padding: 10px 8px;">Balance</th>
+                    <th style="padding: 10px 8px;">Category</th>
                 </tr>
             </thead>
             <tbody>{rows_html}</tbody>
         </table>
         </div>
-        <p class="text-muted small">Showing {len(filtered):,} of {len(transactions):,} transactions.</p>
         """)
 
-        # CSV export
+        # CSV export (keeps full filtered list)
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["Receipt No", "Completion Time", "Details", "Amount", "Balance", "Type"])
         for t in filtered:
             writer.writerow([t["receipt_no"], t["completion_time"], t["details"], t["amount"], t["balance"], t["type"]])
         st.download_button(
-            label="⬇️ Export as CSV",
+            label="⬇️ Export All Filtered as CSV",
             data=output.getvalue().encode("utf-8"),
             file_name="mpesa_transactions.csv",
             mime="text/csv",
+            key="csv_export_btn"
         )
     else:
         st.info("No transactions match the current filter.")
+
+# ── Risk & Negative Indicators ────────────────────────────────────────────────
+with tab_neg:
+    st.markdown("##### ⚠️ Financial Risk & Negative Indicators")
+    st.caption("Key vulnerability indicators, including account inactivity, high spending days, deficit periods, and overdraft dependencies.")
+    
+    # Row of KPI Cards
+    n1, n2, n3 = st.columns(3)
+    with n1:
+        # Longest Dormant Period
+        gap_days = analysis["longest_gap_days"]
+        gap_str = f"{gap_days:.1f} Days" if gap_days > 0 else "0 Days"
+        bt(f"""<div class="kpi-card warning">
+            <div class="kpi-label">Longest Dormant Period</div>
+            <div class="kpi-value">{gap_str}</div>
+            <div class="kpi-sub">Span: {analysis['longest_gap_start']} to {analysis['longest_gap_end']}</div>
+        </div>""")
+        
+    with n2:
+        # Peak Outflow Day
+        bt(f"""<div class="kpi-card outflow">
+            <div class="kpi-label">Peak Outflow Day</div>
+            <div class="kpi-value">KES {analysis['peak_outflow_amount']:,.2f}</div>
+            <div class="kpi-sub">Date: {analysis['peak_outflow_day']}</div>
+        </div>""")
+        
+    with n3:
+        # Overdraft Reliance
+        ov_vol = analysis["overdraft_total_volume"]
+        bt(f"""<div class="kpi-card risk">
+            <div class="kpi-label">Overdraft (Fuliza) Triggers</div>
+            <div class="kpi-value">{analysis['overdraft_events']} Times</div>
+            <div class="kpi-sub">Total Borrowed: KES {ov_vol:,.2f}</div>
+        </div>""")
+
+    # Deficit Months & Debt Reliance Breakdown
+    col_def, col_debt = st.columns(2)
+    
+    with col_def:
+        st.markdown("##### 📉 Monthly Deficit Analysis")
+        st.caption("Months where total cash outflow exceeded total cash inflow.")
+        neg_months = analysis["negative_months"]
+        if neg_months:
+            rows_html = ""
+            for m in neg_months:
+                rows_html += f"""<tr>
+                    <td><strong>{m['month']}</strong></td>
+                    <td class="amount-in" style="text-align:right;">KES {m['inflow']:,.2f}</td>
+                    <td class="amount-out" style="text-align:right;">KES {m['outflow']:,.2f}</td>
+                    <td class="amount-out" style="text-align:right; font-weight:bold;">-KES {m['deficit']:,.2f}</td>
+                </tr>"""
+            bt(f"""
+            <table class="table table-sm table-striped table-hover align-middle" style="font-size:0.86rem; border: 1px solid #263238;">
+                <thead>
+                    <tr>
+                        <th style="padding: 8px;">Month</th>
+                        <th class="text-end" style="padding: 8px;">Inflow</th>
+                        <th class="text-end" style="padding: 8px;">Outflow</th>
+                        <th class="text-end" style="padding: 8px;">Net Deficit</th>
+                    </tr>
+                </thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+            """)
+        else:
+            st.success("✅ No net deficit months detected. Inflow exceeded outflow in all active months!")
+
+    with col_debt:
+        st.markdown("##### 💳 Overdraft & Debt Repayment Ratio")
+        st.caption("Comparison of total amount borrowed via Fuliza vs total amount repaid.")
+        
+        # Details comparison
+        borrowed = analysis["overdraft_total_volume"]
+        repaid = analysis["repayments_total_volume"]
+        b_count = analysis["overdraft_events"]
+        r_count = analysis["repayments_count"]
+        
+        repay_ratio = (repaid / borrowed * 100) if borrowed > 0 else 0.0
+        ratio_color = "#69f0ae" if repay_ratio >= 100 else "#ffb300" if repay_ratio > 80 else "#ff5252"
+        
+        bt(f"""
+        <div style="background:#192027; border: 1px solid #2c3e50; border-radius:10px; padding:18px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span style="font-size:0.85rem; color:#90a4ae; font-weight:600;">Repayment Rate</span>
+                <span style="font-size:1.35rem; color:{ratio_color}; font-weight:800;">{repay_ratio:.1f}%</span>
+            </div>
+            <!-- Progress bar -->
+            <div style="background:#1c2b1c; border-radius:4px; height:8px; margin-bottom:16px;">
+                <div style="background:{ratio_color}; width:{min(repay_ratio, 100.0):.1f}%; height:8px; border-radius:4px; transition:width .3s;"></div>
+            </div>
+            
+            <table class="table table-sm table-borderless" style="font-size:0.82rem; margin-bottom:0; color:#cfd8dc !important;">
+                <tbody>
+                    <tr>
+                        <th style="color:#90a4ae; padding:4px 0;">Total Borrowed Volume</th>
+                        <td class="amount-out" style="text-align:right; padding:4px 0;">KES {borrowed:,.2f} ({b_count} txs)</td>
+                    </tr>
+                    <tr>
+                        <th style="color:#90a4ae; padding:4px 0;">Total Repaid Volume</th>
+                        <td class="amount-in" style="text-align:right; padding:4px 0;">KES {repaid:,.2f} ({r_count} txs)</td>
+                    </tr>
+                    <tr style="border-top:1px solid #2c3e50;">
+                        <th style="color:#eceff1; padding:6px 0;">Outstanding Debt Est.</th>
+                        <td style="text-align:right; padding:6px 0; font-weight:bold; color:{'#fff' if borrowed-repaid <= 0 else '#ff5252'}">
+                            KES {max(0.0, borrowed - repaid):,.2f}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        """)

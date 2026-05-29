@@ -106,11 +106,101 @@ def analyze_statement(transactions: list) -> dict:
             })
         return res
 
+    # Calculate transaction fees
+    total_fees = 0.0
+    fee_pattern = re.compile(r"charge|fee|interest|tax|levy|commission|cost", re.IGNORECASE)
+    for t in transactions:
+        if t["amount"] < 0:
+            if fee_pattern.search(t["details"]) or t["type"] == "Others":
+                total_fees += abs(t["amount"])
+
+    # Calculate net savings and savings rate
+    net_savings = total_inflow + total_outflow
+    savings_rate = (net_savings / total_inflow * 100) if total_inflow > 0 else 0.0
+
+    # ── Negative Indicators ──
+    # 1. Transaction Gaps (Dormant Periods)
+    sorted_txs = sorted([t for t in transactions if t["date"]], key=lambda x: x["date"])
+    longest_gap_days = 0.0
+    longest_gap_start = None
+    longest_gap_end = None
+    
+    for i in range(len(sorted_txs) - 1):
+        t1 = sorted_txs[i]["date"]
+        t2 = sorted_txs[i+1]["date"]
+        gap = (t2 - t1).total_seconds() / 86400.0  # gap in days
+        if gap > longest_gap_days:
+            longest_gap_days = gap
+            longest_gap_start = t1
+            longest_gap_end = t2
+
+    # 2. Overdraft (Fuliza) & Debt Reliance
+    overdraft_events = 0
+    overdraft_total_volume = 0.0
+    repayments_count = 0
+    repayments_total_volume = 0.0
+    
+    for t in transactions:
+        det_lower = t["details"].lower()
+        if any(w in det_lower for w in ("fuliza", "overdraft", "overdraw", "od loan")):
+            if t["amount"] > 0:
+                overdraft_events += 1
+                overdraft_total_volume += t["amount"]
+            else:
+                repayments_count += 1
+                repayments_total_volume += abs(t["amount"])
+
+    # 3. Net Deficit Months
+    negative_months = []
+    for month_key in sorted(dated_months):
+        in_sum = monthly_inflows_sums.get(month_key, 0.0)
+        out_sum = abs(monthly_outflows_sums.get(month_key, 0.0))
+        if out_sum > in_sum:
+            deficit = out_sum - in_sum
+            negative_months.append({
+                "month": month_key,
+                "inflow": in_sum,
+                "outflow": out_sum,
+                "deficit": deficit
+            })
+
+    # 4. Peak Outflow Day
+    daily_outflows = defaultdict(float)
+    for t in transactions:
+        if t["amount"] < 0 and t["date"]:
+            day_key = t["date"].strftime("%Y-%m-%d")
+            daily_outflows[day_key] += abs(t["amount"])
+            
+    peak_outflow_day = "N/A"
+    peak_outflow_amount = 0.0
+    if daily_outflows:
+        peak_outflow_day = max(daily_outflows, key=daily_outflows.get)
+        peak_outflow_amount = daily_outflows[peak_outflow_day]
+
     return {
         "total_inflow": total_inflow,
         "total_outflow": total_outflow,
         "avg_monthly_inflow": avg_monthly_inflow,
         "avg_monthly_outflow": avg_monthly_outflow,
+        "total_fees": total_fees,
+        "net_savings": net_savings,
+        "savings_rate": savings_rate,
+        "total_txs": len(transactions),
+        "inflow_count": len(inflows),
+        "outflow_count": len(outflows),
+        
+        # Negative Indicators
+        "longest_gap_days": longest_gap_days,
+        "longest_gap_start": str(longest_gap_start.strftime("%Y-%m-%d %H:%M")) if longest_gap_start else "N/A",
+        "longest_gap_end": str(longest_gap_end.strftime("%Y-%m-%d %H:%M")) if longest_gap_end else "N/A",
+        "overdraft_events": overdraft_events,
+        "overdraft_total_volume": overdraft_total_volume,
+        "repayments_count": repayments_count,
+        "repayments_total_volume": repayments_total_volume,
+        "negative_months": negative_months,
+        "peak_outflow_day": peak_outflow_day,
+        "peak_outflow_amount": peak_outflow_amount,
+        
         "largest_incoming": {
             "receipt_no": largest_incoming["receipt_no"] if largest_incoming else "N/A",
             "amount": largest_incoming["amount"] if largest_incoming else 0.0,
