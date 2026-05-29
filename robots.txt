@@ -1,0 +1,11 @@
+# robots.txt for M-PESA Statement Analyzer
+# Optimized for search engine crawling and security
+
+User-agent: *
+Allow: /
+
+# Disallow indexing of development, cache, and data directories
+Disallow: /__pycache__/
+Disallow: /data/
+Disallow: /.git/
+Disallow: /images/

@@ -24,6 +24,33 @@ BOOTSTRAP_CDN = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 """
 
+# SEO_METADATA: Injects search-engine optimization tags, meta descriptions, open graph tags, and structured JSON-LD schema markup.
+SEO_METADATA = """
+<meta name="description" content="Secure, high-performance, fully local M-PESA statement password cracker and analytical dashboard. Recover statement passwords and analyze spending offline.">
+<meta name="keywords" content="M-PESA statement, M-PESA analyzer, PDF statement unlocker, M-PESA statement parser, M-PESA statement decrypt, local password recovery, M-PESA PDF tools">
+<meta name="author" content="Joseph Peters W">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="M-PESA Statement Brute-Force Unlocker & Analyzer">
+<meta property="og:description" content="Securely decrypt, parse, and analyze your M-PESA statements offline. Developed by Joseph Peters W.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://github.com/josephpetersw/mpesa_statement_brute-Force_unlocker">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "M-PESA Statement Analyzer",
+  "operatingSystem": "All",
+  "applicationCategory": "BusinessApplication",
+  "description": "Secure, local M-PESA statement decryption and visualization dashboard. Recover passwords using concurrent CPU batches and explore interactive financial charts.",
+  "creator": {
+    "@type": "Person",
+    "name": "Joseph Peters W",
+    "url": "https://github.com/josephpetersw"
+  }
+}
+</script>
+"""
+
 
 def clean_html(html: str) -> str:
     """Strip leading/trailing whitespace from each line of HTML to prevent Streamlit from rendering indented HTML as a markdown code block."""
@@ -337,7 +364,7 @@ st.set_page_config(
 # ─────────────────────────────────────────────────────────────────────────────
 # Global CSS — dark-mode friendly + Bootstrap tables + Nunito Font integration
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown(BOOTSTRAP_CDN, unsafe_allow_html=True)
+st.markdown(BOOTSTRAP_CDN + SEO_METADATA, unsafe_allow_html=True)
 
 st.markdown("""
 <style>
