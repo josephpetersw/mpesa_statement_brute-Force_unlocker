@@ -590,6 +590,7 @@ if st.session_state.password:
 # ─────────────────────────────────────────────────────────────────────────────
 # Extract data
 # ─────────────────────────────────────────────────────────────────────────────
+parse_start_time = time.time()
 with st.spinner("Extracting text and transactions…"):
     raw_text = extract_text_from_pdf(working_bytes)
     is_scanned = len(raw_text.strip()) < 100
@@ -617,6 +618,8 @@ with st.spinner("Extracting text and transactions…"):
             tables = extract_tables_from_pdf(working_bytes)
             transactions = parse_transactions(tables, raw_text)
 
+parse_duration = time.time() - parse_start_time
+
 if not transactions:
     st.error("No transactions found in this statement.")
     st.stop()
@@ -627,6 +630,7 @@ analysis = analyze_statement(transactions)
 # Dashboard header
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("## 📊 Statement Analysis Dashboard")
+st.caption(f"Processed **{len(transactions):,}** transactions in **{parse_duration:.3f}** seconds.")
 
 # Customer meta row
 c1, c2, c3, c4 = st.columns(4)
