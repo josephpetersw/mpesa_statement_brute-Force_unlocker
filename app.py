@@ -343,7 +343,12 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800;900&display=swap');
 
-html, body, [class*="css"], .stApp, .kpi-card, .table, button, select, input, p, div, span, h1, h2, h3, h4, h5, h6 {
+/* Apply Nunito to structural containers. Avoid styling all spans/divs directly to prevent breaking icon font ligatures */
+html, body, .stApp {
+    font-family: 'Nunito', sans-serif !important;
+}
+
+button, select, input, textarea {
     font-family: 'Nunito', sans-serif !important;
 }
 
@@ -503,6 +508,23 @@ html, body, [class*="css"], .stApp, .kpi-card, .table, button, select, input, p,
     align-items: center;
     gap: 16px;
 }
+.footer-container {
+    margin-top: 50px;
+    padding-top: 20px;
+    border-top: 1px solid #263238;
+    text-align: center;
+}
+.footer-disclaimer {
+    font-size: 0.78rem;
+    color: #78909c;
+    line-height: 1.5;
+    max-width: 800px;
+    margin: 0 auto 12px auto;
+}
+.footer-copyright {
+    font-size: 0.85rem;
+    color: #90a4ae;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -520,7 +542,7 @@ with st.sidebar:
     st.image("images/M-PESA_LOGO-01.svg.png", use_container_width=True)
     st.markdown("---")
     st.markdown("<h3><i class='fas fa-file-upload'></i> Upload Statement</h3>", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload M-PESA PDF Statement", type=["pdf"])
+    uploaded_file = st.file_uploader("Upload M-PESA PDF Statement", type=["pdf"], label_visibility="collapsed")
     if uploaded_file:
         if st.session_state.pdf_name != uploaded_file.name:
             st.session_state.unlocked_pdf_bytes = None
@@ -602,6 +624,18 @@ if not uploaded_file:
             <span style="color: #90a4ae; font-size: 0.85rem; line-height: 1.4;">
                 All file reads, decryption attempts, transaction extractions, and statistical calculations are performed locally in your machine's system memory. None of your statements, passwords, or transaction records are ever sent to an external server.
             </span>
+        </div>
+    </div>
+    """)
+    
+    # ── Copyright Footer and Disclaimer ──
+    bt("""
+    <div class="footer-container">
+        <div class="footer-disclaimer">
+            <strong>Disclaimer:</strong> This tool is designed strictly for local recovery of personal statement passwords. All parsing, decryption, and analytics are performed client-side. Make sure to comply with your local financial regulations and safeguard your personal data.
+        </div>
+        <div class="footer-copyright">
+            &copy; 2026 M-PESA Statement Analyzer. Designed by <a href="https://github.com/josephpetersw" target="_blank" style="color: #69f0ae; text-decoration: none; font-weight: bold;"><i class="fab fa-github"></i> Joseph Peters W</a>. All rights reserved.
         </div>
     </div>
     """)
@@ -1203,3 +1237,15 @@ with tab_neg:
             </table>
         </div>
         """)
+
+# ── Copyright Footer and Disclaimer ──
+bt("""
+<div class="footer-container">
+    <div class="footer-disclaimer">
+        <strong>Disclaimer:</strong> This tool is designed strictly for local recovery of personal statement passwords. All parsing, decryption, and analytics are performed client-side. Make sure to comply with your local financial regulations and safeguard your personal data.
+    </div>
+    <div class="footer-copyright">
+        &copy; 2026 M-PESA Statement Analyzer. Designed by <a href="https://github.com/josephpetersw" target="_blank" style="color: #69f0ae; text-decoration: none; font-weight: bold;"><i class="fab fa-github"></i> Joseph Peters W</a>. All rights reserved.
+    </div>
+</div>
+""")
