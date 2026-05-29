@@ -82,7 +82,7 @@ def start_brute_force_session(pdf_bytes, candidates, strategy_name, enc_info, ma
 
     def run_wrapper():
         try:
-            pwd = run_brute_force(
+            pwd, worker_idx = run_brute_force(
                 pdf_bytes, candidates,
                 enc_info=enc_info,
                 max_workers=num_batches,
@@ -91,9 +91,10 @@ def start_brute_force_session(pdf_bytes, candidates, strategy_name, enc_info, ma
                 pause_event=state["pause_event"],
             )
             state["found_password"] = pwd
+            state["found_worker"] = worker_idx
             t_str = datetime.now().strftime("%H:%M:%S")
             if pwd:
-                state["logs_list"].append(f"[{t_str}] ✅ SUCCESS — Password: {pwd}")
+                state["logs_list"].append(f"[{t_str}] ✅ SUCCESS — Password: {pwd} (found by Worker {worker_idx + 1})")
             else:
                 msg = "ABORTED by user." if state["stop_event"].is_set() else "FINISHED — not found."
                 state["logs_list"].append(f"[{t_str}] {msg}")
@@ -292,8 +293,10 @@ def run_progress_ui_loop(pdf_bytes):
         unlocked = generate_unlocked_pdf(pdf_bytes, found_pwd)
         st.session_state.unlocked_pdf_bytes = unlocked
         st.session_state.password = found_pwd
+        st.session_state.cracked_by_worker = state.get("found_worker")
 
-        st.success(f"🎉 **Password cracked successfully!**")
+        worker_lbl = f" (Found by Worker {st.session_state.cracked_by_worker + 1})" if st.session_state.cracked_by_worker is not None else ""
+        st.success(f"🎉 **Password cracked successfully!**{worker_lbl}")
         bt(f"""
         <div style="background:#1b5e20;border-radius:10px;padding:16px 24px;margin:12px 0;display:inline-block;">
             <span style="color:#a5d6a7;font-size:0.85rem;letter-spacing:1px;">DOCUMENT PASSWORD</span><br>
@@ -424,7 +427,7 @@ st.caption("Securely analyze, decrypt, and visualize your M-PESA statements — 
 # ─────────────────────────────────────────────────────────────────────────────
 # Session-state init
 # ─────────────────────────────────────────────────────────────────────────────
-for key, default in [("unlocked_pdf_bytes", None), ("pdf_name", None), ("password", None)]:
+for key, default in [("unlocked_pdf_bytes", None), ("pdf_name", None), ("password", None), ("cracked_by_worker", None)]:
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -439,11 +442,13 @@ with st.sidebar:
             st.session_state.unlocked_pdf_bytes = None
             st.session_state.pdf_name = uploaded_file.name
             st.session_state.password = None
+            st.session_state.cracked_by_worker = None
 
     # Show previously cracked password in sidebar
     if st.session_state.password:
         st.markdown("---")
-        st.markdown("🔓 **Document Password**")
+        worker_lbl = f" (Worker {st.session_state.cracked_by_worker + 1})" if st.session_state.get("cracked_by_worker") is not None else ""
+        st.markdown(f"🔓 **Document Password**{worker_lbl}")
         st.code(st.session_state.password, language=None)
         if st.session_state.unlocked_pdf_bytes:
             st.download_button(
@@ -572,9 +577,12 @@ else:
 
 # ── Show password banner if session has a cracked password ──────────────────
 if st.session_state.password:
+    worker_lbl = ""
+    if st.session_state.get("cracked_by_worker") is not None:
+        worker_lbl = f" (found by Worker {st.session_state.cracked_by_worker + 1})"
     bt(f"""
     <div class="pwd-box">
-        <div class="lbl">Document Password (cracked)</div>
+        <div class="lbl">Document Password (cracked){worker_lbl}</div>
         <div class="val">{st.session_state.password}</div>
     </div>
     """)
@@ -597,10 +605,17 @@ with st.spinner("Extracting text and transactions…"):
             st.info("Click **Run OCR** to extract text.")
             st.stop()
 
-    tables = extract_tables_from_pdf(working_bytes)
     metadata = extract_metadata(raw_text)
     summary_totals = parse_summary_totals(raw_text)
-    transactions = parse_transactions(tables, raw_text)
+    
+    # Fast path: Parse transactions from PyMuPDF raw text layout (takes <0.3s)
+    transactions = parse_transactions(None, raw_text)
+    
+    # Fallback: Run slow pdfplumber table extraction only if text-based parsing returned 0 transactions
+    if not transactions:
+        with st.spinner("Fast-path text parser returned 0 results. Running table extraction fallback (this may take a few minutes)..."):
+            tables = extract_tables_from_pdf(working_bytes)
+            transactions = parse_transactions(tables, raw_text)
 
 if not transactions:
     st.error("No transactions found in this statement.")

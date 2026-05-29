@@ -219,19 +219,22 @@ def brute_force_generator(prefix: str, suffix: str, min_val: int, max_val: int, 
 
 def _make_checker(pdf_bytes: bytes, enc_info: dict):
     """
-    Returns the fastest single-candidate checker function for the detected
-    encryption type, avoiding redundant library round-trips in hot loops.
+    Returns the validation function check(stream, pwd) for the detected encryption type.
     Note: We do NOT use PyMuPDF (fitz) for multi-threaded validation because
     fitz.open is not thread-safe and deadlocks under concurrent execution.
     """
-    def check(pwd):
+    def check(stream, pwd):
         pwd_str = str(pwd)
         try:
-            return validate_password_pikepdf(pdf_bytes, pwd_str)
+            stream.seek(0)
+            with pikepdf.open(stream, password=pwd_str):
+                return True
         except Exception:
             pass
         try:
-            return validate_password_pypdf(pdf_bytes, pwd_str)
+            stream.seek(0)
+            reader = pypdf.PdfReader(stream)
+            return reader.decrypt(pwd_str) > 0
         except Exception:
             return False
 
@@ -250,10 +253,10 @@ def run_brute_force(
     """
     Multi-threaded brute-force engine.
 
-    The keyspace is split into exactly `num_batches` contiguous slices
+    The keyspace is split into exactly `num_batches` strided slices
     (= max_workers, clamped to 1–200). Each slice runs sequentially inside
-    its own worker thread. This eliminates nested thread pools, avoids GIL queue
-    blocking, and prevents deadlocks.
+    its own worker thread. This focuses all workers on high-probability passwords
+    first, eliminates nested thread pools, and prevents deadlocks.
 
     Args:
         pdf_bytes:         Raw PDF bytes.
@@ -279,16 +282,13 @@ def run_brute_force(
         pause_event = threading.Event()
         pause_event.set()           # default: running (not paused)
 
-    # ── Divide candidates into exactly num_batches contiguous slices ────────
-    batch_size = (total + num_batches - 1) // num_batches
+    # ── Divide candidates into exactly num_batches strided slices ───────────
     batches: list[list] = []
     for i in range(num_batches):
-        s = i * batch_size
-        e = min(s + batch_size, total)
-        batches.append(candidates[s:e] if s < e else [])
+        batches.append(candidates[i::num_batches])
 
     # ── Shared result container ─────────────────────────────────────────────
-    found_password: list = [None]
+    found_password: list = [None, None]
 
     def batch_worker(batch_idx: int, batch_candidates: list):
         """Runs one batch sequentially, reporting progress periodically."""
@@ -300,7 +300,8 @@ def run_brute_force(
             if n == 0:
                 return
 
-            # Determine progress report interval dynamically based on slice size
+            # Create thread-local stream buffer to avoid allocating BytesIO on every check
+            stream = io.BytesIO(pdf_bytes)
             chunk_size = max(10, min(100, n // 50))
 
             for i, pwd in enumerate(batch_candidates):
@@ -311,8 +312,9 @@ def run_brute_force(
 
                 # Test candidate
                 try:
-                    if checker(pwd):
+                    if checker(stream, pwd):
                         found_password[0] = pwd
+                        found_password[1] = batch_idx
                         stop_event.set()            # abort all other threads
                         break
                 except Exception:
@@ -344,7 +346,7 @@ def run_brute_force(
     for t in threads:
         t.join()   # wait until every batch is done (or stopped)
 
-    return found_password[0]
+    return found_password[0], found_password[1]
 
 
 def _safe_callback(cb, *args):

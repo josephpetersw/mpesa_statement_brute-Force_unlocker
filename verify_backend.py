@@ -50,8 +50,8 @@ def main():
     # Try brute force
     print("Running brute force range 30002100 to 30002200...")
     candidates = list(brute_force_generator("", "", 30002100, 30002200))
-    found_pwd = run_brute_force(enc_pdf_bytes, candidates)
-    print(f"Brute forced password: {found_pwd} (Expected: 30002154)")
+    found_pwd, worker_idx = run_brute_force(enc_pdf_bytes, candidates)
+    print(f"Brute forced password: {found_pwd} (Expected: 30002154, found by Worker {worker_idx + 1 if worker_idx is not None else 'None'})")
     
     # Verify decrypt
     if found_pwd:

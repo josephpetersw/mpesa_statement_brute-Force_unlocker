@@ -171,6 +171,8 @@ def parse_transactions(tables: list, raw_text: str = "") -> list:
     Parses tables extracted from pdfplumber into a list of transaction dictionaries,
     with an advanced line-by-line fallback scanner for PyMuPDF text layouts.
     """
+    if tables is None:
+        tables = []
     rows = []
     seen_receipts = set()
     tx_id_pattern = re.compile(r"^[A-Z0-9]{10}$")
@@ -271,43 +273,71 @@ def parse_transactions(tables: list, raw_text: str = "") -> list:
     if raw_text:
         lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
         idx = 0
-        while idx < len(lines):
+        n_lines = len(lines)
+        date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        statuses = ("Completed", "Failed", "Cancelled", "Pending")
+        
+        while idx < n_lines:
             line = lines[idx]
             if tx_id_pattern.match(line):
                 receipt_no = line
-                if idx + 1 < len(lines) and parse_date(lines[idx+1]):
-                    completion_time = lines[idx+1]
+                if idx + 1 < n_lines and date_pattern.match(lines[idx + 1]):
+                    completion_time = lines[idx + 1]
                     
-                    details = ""
-                    amount = "0.0"
-                    balance = "0.0"
+                    details_lines = []
+                    status_idx = idx + 2
+                    status_found = False
                     
-                    look_idx = idx + 2
-                    sub_lines = []
-                    while look_idx < len(lines) and not tx_id_pattern.match(lines[look_idx]):
-                        sub_lines.append(lines[look_idx])
-                        look_idx += 1
+                    while status_idx < n_lines:
+                        current_line = lines[status_idx]
                         
-                    if len(sub_lines) >= 2:
-                        balance = sub_lines[-1]
-                        amount_cand = sub_lines[-2]
+                        # Check statuses
+                        for st in statuses:
+                            if current_line == st:
+                                status_found = True
+                                break
+                            if current_line.endswith(" " + st):
+                                part = current_line[:-len(st) - 1].strip()
+                                if part:
+                                    details_lines.append(part)
+                                status_found = True
+                                break
                         
-                        # Use clean_amount with exact matching
-                        # If there is a number at the end of the second-last line, extract it.
-                        match_num = re.search(r"(-?\d+\.?\d*)\s*$", amount_cand)
-                        if match_num:
-                            amount = match_num.group(1)
-                            # Remove the matched amount from details candidate
-                            det_cand = amount_cand[:match_num.start()].strip()
-                            details = (" ".join(sub_lines[:-2]) + " " + det_cand).strip()
-                        else:
-                            details = " ".join(sub_lines[:-1])
-                            amount = "0.0"
-                    elif len(sub_lines) == 1:
-                        details = sub_lines[0]
-                        
-                    add_transaction(receipt_no, completion_time, details, amount, balance)
-                    idx = look_idx - 1
+                        if status_found:
+                            break
+                            
+                        # Abort ONLY if it's a real new transaction (ID followed by date)
+                        if tx_id_pattern.match(current_line):
+                            if status_idx + 1 < n_lines and date_pattern.match(lines[status_idx + 1]):
+                                break
+                                
+                        details_lines.append(current_line)
+                        status_idx += 1
+                    
+                    if status_found and status_idx + 2 < n_lines:
+                        details = " ".join(details_lines).strip()
+                        amount_str = lines[status_idx + 1]
+                        balance_str = lines[status_idx + 2]
+                        add_transaction(receipt_no, completion_time, details, amount_str, balance_str)
+                        idx = status_idx + 2
+                    else:
+                        # Fallback position-based parsing (compatible with custom/mock statements lacking status columns)
+                        if len(details_lines) >= 2:
+                            balance_str = details_lines[-1]
+                            amount_cand = details_lines[-2]
+                            match_num = re.search(r"(-?\d+\.?\d*)\s*$", amount_cand)
+                            if match_num:
+                                amount_str = match_num.group(1)
+                                det_cand = amount_cand[:match_num.start()].strip()
+                                details = (" ".join(details_lines[:-2]) + " " + det_cand).strip()
+                            else:
+                                details = " ".join(details_lines[:-1])
+                                amount_str = "0.0"
+                            add_transaction(receipt_no, completion_time, details, amount_str, balance_str)
+                        elif len(details_lines) == 1:
+                            details = details_lines[0]
+                            add_transaction(receipt_no, completion_time, details, "0.0", "0.0")
+                        idx = status_idx - 1
             idx += 1
 
     # Post processing
