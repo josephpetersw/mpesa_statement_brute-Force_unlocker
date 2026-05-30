@@ -280,17 +280,22 @@ def run_progress_ui_loop(pdf_bytes):
         if state["paused"] and state["pause_start"] > 0:
             active_time -= (now - state["pause_start"])
 
+        def format_time(secs):
+            if secs < 60:
+                return f"{int(secs)}s"
+            elif secs < 3600:
+                return f"{int(secs // 60)}m {int(secs % 60)}s"
+            else:
+                return f"{int(secs // 3600)}h {int((secs % 3600) // 60)}m {int(secs % 60)}s"
+
+        elapsed_str = format_time(active_time)
+
         speed = 0.0
         if overall_tested > 0 and active_time > 0.5:
             speed     = overall_tested / active_time
             remaining = total_candidates - overall_tested
             eta_secs  = remaining / speed
-            if eta_secs < 60:
-                eta_str = f"{int(eta_secs)}s"
-            elif eta_secs < 3600:
-                eta_str = f"{int(eta_secs // 60)}m {int(eta_secs % 60)}s"
-            else:
-                eta_str = f"{int(eta_secs // 3600)}h {int((eta_secs % 3600) // 60)}m"
+            eta_str   = format_time(eta_secs)
             speed_str = f"{speed:,.0f}/sec"
         else:
             eta_str = speed_str = "Calculating…"
@@ -298,12 +303,12 @@ def run_progress_ui_loop(pdf_bytes):
         if state["paused"]:
             status_text.markdown(
                 f"**PAUSED** — `{overall_tested:,}` / `{total_candidates:,}` "
-                f"tested **({pct*100:.2f}%)**"
+                f"tested **({pct*100:.2f}%)** · Elapsed: **{elapsed_str}**"
             )
         else:
             status_text.markdown(
                 f"`{overall_tested:,}` / `{total_candidates:,}` tested "
-                f"**({pct*100:.2f}%)** · ETA **{eta_str}** · Speed: {speed_str}"
+                f"**({pct*100:.2f}%)** · Elapsed: **{elapsed_str}** · ETA: **{eta_str}** · Speed: {speed_str}"
             )
 
         # ── Render worker grid ────────────────────────────────────────────────
@@ -327,7 +332,32 @@ def run_progress_ui_loop(pdf_bytes):
         st.session_state.cracked_by_worker = state.get("found_worker")
 
         worker_lbl = f" (Found by Worker {st.session_state.cracked_by_worker + 1})" if st.session_state.cracked_by_worker is not None else ""
-        st.success(f"Password cracked successfully!{worker_lbl}")
+        
+        # Calculate final elapsed time for the success message
+        final_time = time.time() - state["start_time"] - state["elapsed_paused"]
+        def format_time_final(secs):
+            if secs < 60: return f"{int(secs)}s"
+            elif secs < 3600: return f"{int(secs // 60)}m {int(secs % 60)}s"
+            else: return f"{int(secs // 3600)}h {int((secs % 3600) // 60)}m {int(secs % 60)}s"
+        
+        st.success(f"Password cracked successfully in {format_time_final(final_time)}!{worker_lbl}")
+        
+        # Determine download filename from customer name
+        try:
+            text_dec = extract_text_from_pdf(unlocked)
+            meta_dec = extract_metadata(text_dec)
+            c_name = meta_dec.get("customer_name")
+            print(f"DEBUG: Customer name extracted for filename: {c_name}")
+            if c_name and c_name != "Unknown":
+                safe_name = "".join(c for c in c_name if c.isalnum() or c in (' ', '_')).strip().replace(' ', '_')
+                out_filename = f"{safe_name}_unlocked.pdf"
+                print(f"DEBUG: Final filename: {out_filename}")
+            else:
+                out_filename = "unlocked_statement.pdf"
+        except Exception as e:
+            print(f"DEBUG: Exception extracting metadata for filename: {e}")
+            out_filename = "unlocked_statement.pdf"
+
         bt(f"""
         <div style="background:#1b5e20;border-radius:10px;padding:16px 24px;margin:12px 0;display:inline-block;">
             <span style="color:#a5d6a7;font-size:0.85rem;letter-spacing:1px;"><i class="fas fa-unlock-alt"></i> DOCUMENT PASSWORD</span><br>
@@ -337,7 +367,7 @@ def run_progress_ui_loop(pdf_bytes):
         st.download_button(
             label="Download Unlocked PDF",
             data=unlocked,
-            file_name="unlocked_statement.pdf",
+            file_name=out_filename,
             mime="application/pdf",
             type="primary",
         )
