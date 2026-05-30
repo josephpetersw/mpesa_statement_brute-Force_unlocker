@@ -4,6 +4,7 @@ import io
 import csv
 import time
 import threading
+import multiprocessing
 import os
 from datetime import datetime
 from pdf_handler import detect_encryption, get_encryption_info, validate_password, generate_unlocked_pdf, run_brute_force, brute_force_generator
@@ -67,7 +68,7 @@ def bt(html: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def start_brute_force_session(pdf_bytes, candidates, strategy_name, enc_info, max_workers: int = 20):
-    num_batches = max(1, min(max_workers, 50))  # clamp 1–50
+    num_batches = max(1, min(max_workers, multiprocessing.cpu_count() or 4))  # clamp to CPU cores
     state = {
         "active": True,
         "strategy_name": strategy_name,
@@ -75,8 +76,8 @@ def start_brute_force_session(pdf_bytes, candidates, strategy_name, enc_info, ma
         "max_workers": num_batches,
         "batch_progress": {i: {"tested": 0, "total": 0, "last_pwd": "", "status": "Pending"} for i in range(num_batches)},
         "logs_list": [f"[{datetime.now().strftime('%H:%M:%S')}] [System] Starting {num_batches} concurrent workers…"],
-        "stop_event": threading.Event(),
-        "pause_event": threading.Event(),
+        "stop_event": multiprocessing.Event(),
+        "pause_event": multiprocessing.Event(),
         "paused": False,
         "found_password": None,
         "finished": False,

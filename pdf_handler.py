@@ -4,6 +4,7 @@ import pikepdf
 import pypdf
 import concurrent.futures
 import threading
+import multiprocessing
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Encryption detection & info
@@ -220,17 +221,37 @@ def brute_force_generator(prefix: str, suffix: str, min_val: int, max_val: int, 
 def _make_checker(pdf_bytes: bytes, enc_info: dict):
     """
     Returns the validation function check(stream, pwd) for the detected encryption type.
-    Note: We do NOT use PyMuPDF (fitz) for multi-threaded validation because
-    fitz.open is not thread-safe and deadlocks under concurrent execution.
+    We CAN use PyMuPDF (fitz) for multi-process validation because each process
+    has its own memory space. It is significantly faster than pikepdf/pypdf.
     """
+    algo = enc_info.get("algorithm", "")
+    bits = enc_info.get("key_length", "")
+    is_aes256 = (algo == "AES" and bits == "256-bit")
+
     def check(stream, pwd):
         pwd_str = str(pwd)
+        
+        # 1. Primary fast check: fitz
         try:
             stream.seek(0)
-            with pikepdf.open(stream, password=pwd_str):
+            doc = fitz.open(stream=stream, filetype="pdf")
+            res = doc.authenticate(pwd_str)
+            doc.close()
+            if res > 0:
                 return True
         except Exception:
             pass
+            
+        # 2. Secondary check for AES-256 (pikepdf)
+        if is_aes256:
+            try:
+                stream.seek(0)
+                with pikepdf.open(stream, password=pwd_str):
+                    return True
+            except Exception:
+                pass
+                
+        # 3. Fallback pypdf
         try:
             stream.seek(0)
             reader = pypdf.PdfReader(stream)
@@ -241,6 +262,54 @@ def _make_checker(pdf_bytes: bytes, enc_info: dict):
     return check
 
 
+def _batch_worker(batch_idx: int, batch_candidates: list, pdf_bytes: bytes, enc_info: dict, progress_queue, stop_event, pause_event):
+    """Runs one batch sequentially in a separate process, reporting progress via queue."""
+    try:
+        n = len(batch_candidates)
+        # Immediately report that the worker has started running
+        if progress_queue:
+            progress_queue.put((batch_idx, 0, n, "Starting...", None))
+            
+        if n == 0:
+            return
+
+        # Create checker inside the process
+        checker = _make_checker(pdf_bytes, enc_info)
+        stream = io.BytesIO(pdf_bytes)
+        chunk_size = max(10, min(100, n // 50))
+
+        for i, pwd in enumerate(batch_candidates):
+            # ── Pause gate ──────────────────────────────────────────
+            if pause_event:
+                pause_event.wait()                  # blocks while paused
+            if stop_event and stop_event.is_set():
+                break
+
+            # Test candidate
+            try:
+                if checker(stream, pwd):
+                    if progress_queue:
+                        progress_queue.put((batch_idx, i + 1, n, str(pwd), str(pwd)))
+                    if stop_event:
+                        stop_event.set()            # abort all other processes
+                    return
+            except Exception:
+                pass
+
+            # Report progress periodically
+            if (i + 1) % chunk_size == 0:
+                if progress_queue:
+                    progress_queue.put((batch_idx, i + 1, n, str(pwd), None))
+
+        # Report final progress if not aborted
+        if stop_event and not stop_event.is_set():
+            if progress_queue:
+                progress_queue.put((batch_idx, n, n, str(batch_candidates[-1] if batch_candidates else ""), None))
+
+    except Exception:
+        pass   # batch threads must never raise
+
+
 def run_brute_force(
     pdf_bytes: bytes,
     candidates: list,
@@ -249,104 +318,68 @@ def run_brute_force(
     progress_callback=None,
     stop_event=None,
     pause_event=None,
-) -> str:
+) -> tuple:
     """
-    Multi-threaded brute-force engine.
-
-    The keyspace is split into exactly `num_batches` strided slices
-    (= max_workers, clamped to 1–200). Each slice runs sequentially inside
-    its own worker thread. This focuses all workers on high-probability passwords
-    first, eliminates nested thread pools, and prevents deadlocks.
-
-    Args:
-        pdf_bytes:         Raw PDF bytes.
-        candidates:        Ordered list of password strings to try.
-        enc_info:          Output of get_encryption_info() (optional).
-        max_workers:       Number of concurrent worker threads (1–200).
-        progress_callback: callable(batch_idx, tested, total, last_pwd)
-        stop_event:        threading.Event — set to abort.
-        pause_event:       threading.Event — clear to pause, set to resume.
-    Returns:
-        Matching password string, or None if not found.
+    Multi-process brute-force engine.
     """
     if enc_info is None:
         enc_info = {}
 
-    num_batches = max(1, min(int(max_workers), 200))
-    checker     = _make_checker(pdf_bytes, enc_info)
+    # Clamp workers to CPU count by default if not strictly specified
+    num_batches = max(1, min(int(max_workers), multiprocessing.cpu_count() or 4))
     total       = len(candidates)
 
     if stop_event is None:
-        stop_event = threading.Event()
+        stop_event = multiprocessing.Event()
     if pause_event is None:
-        pause_event = threading.Event()
+        pause_event = multiprocessing.Event()
         pause_event.set()           # default: running (not paused)
 
     # ── Divide candidates into exactly num_batches strided slices ───────────
-    batches: list[list] = []
+    batches = []
     for i in range(num_batches):
         batches.append(candidates[i::num_batches])
 
-    # ── Shared result container ─────────────────────────────────────────────
-    found_password: list = [None, None]
+    progress_queue = multiprocessing.Queue()
 
-    def batch_worker(batch_idx: int, batch_candidates: list):
-        """Runs one batch sequentially, reporting progress periodically."""
-        try:
-            n = len(batch_candidates)
-            # Immediately report that the worker has started running
-            _safe_callback(progress_callback, batch_idx, 0, n, "Starting...")
-            
-            if n == 0:
-                return
-
-            # Create thread-local stream buffer to avoid allocating BytesIO on every check
-            stream = io.BytesIO(pdf_bytes)
-            chunk_size = max(10, min(100, n // 50))
-
-            for i, pwd in enumerate(batch_candidates):
-                # ── Pause gate ──────────────────────────────────────────
-                pause_event.wait()                  # blocks while paused
-                if stop_event.is_set():
-                    break
-
-                # Test candidate
-                try:
-                    if checker(stream, pwd):
-                        found_password[0] = pwd
-                        found_password[1] = batch_idx
-                        stop_event.set()            # abort all other threads
-                        break
-                except Exception:
-                    pass
-
-                # Report progress periodically
-                if (i + 1) % chunk_size == 0:
-                    _safe_callback(progress_callback, batch_idx, i + 1, n, str(pwd))
-
-            # Report final progress if not aborted
-            if not stop_event.is_set():
-                _safe_callback(progress_callback, batch_idx, n, n, str(batch_candidates[-1] if batch_candidates else ""))
-
-        except Exception:
-            pass   # batch threads must never raise
-
-    # ── Launch all batch threads simultaneously ──────────────────────────────
-    threads = [
-        threading.Thread(
-            target=batch_worker,
-            args=(i, batches[i]),
+    # ── Launch all batch processes simultaneously ──────────────────────────────
+    processes = []
+    for i in range(num_batches):
+        p = multiprocessing.Process(
+            target=_batch_worker,
+            args=(i, batches[i], pdf_bytes, enc_info, progress_queue, stop_event, pause_event),
             name=f"Batch-{i+1}of{num_batches}",
             daemon=True,
         )
-        for i in range(num_batches)
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()   # wait until every batch is done (or stopped)
+        processes.append(p)
+        p.start()
 
-    return found_password[0], found_password[1]
+    found_password = None
+    found_worker = None
+
+    # Consume queue while processes are alive
+    while any(p.is_alive() for p in processes) or not progress_queue.empty():
+        try:
+            # wait for messages with a timeout
+            msg = progress_queue.get(timeout=0.1)
+            batch_idx, tested, total_n, last_pwd, pwd_found = msg
+            if progress_callback:
+                _safe_callback(progress_callback, batch_idx, tested, total_n, last_pwd)
+            if pwd_found:
+                found_password = pwd_found
+                found_worker = batch_idx
+                stop_event.set()
+        except multiprocessing.queues.Empty:
+            continue
+        except Exception:
+            break
+
+    for p in processes:
+        p.join(timeout=1.0)
+        if p.is_alive():
+            p.terminate()
+
+    return found_password, found_worker
 
 
 def _safe_callback(cb, *args):
@@ -357,3 +390,4 @@ def _safe_callback(cb, *args):
         cb(*args)
     except Exception:
         pass
+
